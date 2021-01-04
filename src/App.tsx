@@ -3,10 +3,27 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import * as tf from "@tensorflow/tfjs";
 import { useDropzone } from "react-dropzone";
 
-import { createStyles, makeStyles } from "@material-ui/core";
+import {
+  Button,
+  createStyles,
+  makeStyles,
+  Theme,
+  Typography,
+} from "@material-ui/core";
 
-const useStyles = makeStyles(() =>
-  createStyles({
+const useStyles = makeStyles((theme: Theme) => {
+  console.log(theme.breakpoints.up("md"));
+  return createStyles({
+    wrapper: {
+      display: "flex",
+      justifyContent: "center",
+      flexDirection: "column",
+      alignItems: "center",
+      "@media (min-width:910px)": {
+        alignItems: "flex-start",
+        flexDirection: "row",
+      },
+    },
     dropzone: {
       position: "absolute",
       top: 0,
@@ -67,8 +84,8 @@ const useStyles = makeStyles(() =>
       fontSize: 24,
       fontWeight: 600,
     },
-  })
-);
+  });
+});
 
 async function getRandomImage() {
   const skip = Math.floor(Math.random() * 200);
@@ -384,31 +401,32 @@ function App() {
           <div className={classes.dropText}>Drop to upload your image</div>
         </div>
       </div>
-      <h1>Bleep Bloop</h1>
-      <p>
-        Blop bleep bloop blop blurp beep boop! Blop blip blurp blarp? Blup blep
-        bleep.
-      </p>
-      <button onClick={open}>Upload an image</button>
-      <button
-        onClick={async () => {
-          const url = await getRandomImage();
-          setUrl("https://cors-anywhere.herokuapp.com/" + url);
-          setImage(url);
-        }}
-      >
-        Try another demo image
-      </button>
 
-      <div
-        style={{
-          paddingTop: "4rem",
-          paddingBottom: "4rem",
-          display: "flex",
-          justifyContent: "center",
-        }}
-      >
-        <div style={{ marginLeft: "2rem", marginRight: "2rem" }}>
+      <div style={{ margin: "2rem" }}>
+        <Typography variant="h1" component="h1">
+          Bleep Bloop
+        </Typography>
+        <Typography variant="body1" component="p">
+          Blop bleep bloop blop blurp beep boop! Blop blip blurp blarp? Blup
+          blep bleep.
+        </Typography>
+        <Button variant="contained" onClick={open}>
+          Upload an image
+        </Button>
+        <Button
+          variant="contained"
+          onClick={async () => {
+            const url = await getRandomImage();
+            setUrl("https://cors-anywhere.herokuapp.com/" + url);
+            setImage(url);
+          }}
+        >
+          Try another demo image
+        </Button>
+      </div>
+
+      <div className={classes.wrapper}>
+        <div style={{ margin: "2rem" }}>
           <img
             src={image}
             alt=""
@@ -424,8 +442,7 @@ function App() {
         </div>
         <div
           style={{
-            marginLeft: "2rem",
-            marginRight: "2rem",
+            margin: "2rem",
             width: "310px",
             height: "310px",
             flexShrink: 0,
