@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import heic2any from "heic2any";
 import * as tf from "@tensorflow/tfjs";
 import { useDropzone } from "react-dropzone";
 
@@ -371,8 +372,23 @@ function App() {
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      const url = URL.createObjectURL(acceptedFiles[0]);
-      setImage(url);
+      if (acceptedFiles[0].type === "image/heic") {
+        const fileReader = new FileReader();
+        fileReader.onloadend = function (e) {
+          const arrayBuffer = e.target?.result;
+          if (arrayBuffer) {
+            const blob = new Blob([arrayBuffer]);
+            heic2any({ blob }).then((conversionResult: any) => {
+              const url = URL.createObjectURL(conversionResult);
+              setImage(url);
+            });
+          }
+        };
+        fileReader.readAsArrayBuffer(acceptedFiles[0]);
+      } else {
+        const url = URL.createObjectURL(acceptedFiles[0]);
+        setImage(url);
+      }
     }
   }, []);
 
