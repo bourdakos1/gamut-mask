@@ -1,0 +1,6 @@
+[[redirects]]
+  from = "/cdn/*"
+  to = "https://openaccess-cdn.clevelandart.org/:splat"
+  status = 200
+  force = true
+  headers = {X-From = "Netlify"}

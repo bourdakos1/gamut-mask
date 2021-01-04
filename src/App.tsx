@@ -12,7 +12,6 @@ import {
 } from "@material-ui/core";
 
 const useStyles = makeStyles((theme: Theme) => {
-  console.log(theme.breakpoints.up("md"));
   return createStyles({
     wrapper: {
       display: "flex",
@@ -101,7 +100,7 @@ async function getRandomImage() {
     `https://openaccess-api.clevelandart.org/api/artworks/?type=Painting&has_image=1&limit=1&cc0=1&department=${departments[dep]}&skip=${skip}`
   ).then((r) => r.json());
 
-  return data[0].images.web.url;
+  return `/cdn/${data[0].accession_number}/${data[0].images.web.filename}`;
 }
 
 const squareAndAddKernel = (inputShape: any[]) => ({
@@ -280,7 +279,6 @@ function App() {
   const classes = useStyles();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [url, setUrl] = useState("");
   const [image, setImage] = useState("");
 
   useEffect(() => {
@@ -368,13 +366,12 @@ function App() {
     };
 
     img.crossOrigin = "Anonymous";
-    img.src = url;
-  }, [url]);
+    img.src = image;
+  }, [image]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const url = URL.createObjectURL(acceptedFiles[0]);
-      setUrl(url);
       setImage(url);
     }
   }, []);
@@ -388,7 +385,6 @@ function App() {
 
   useEffect(() => {
     getRandomImage().then((url) => {
-      setUrl("https://cors-anywhere.herokuapp.com/" + url);
       setImage(url);
     });
   }, []);
@@ -417,7 +413,6 @@ function App() {
           variant="contained"
           onClick={async () => {
             const url = await getRandomImage();
-            setUrl("https://cors-anywhere.herokuapp.com/" + url);
             setImage(url);
           }}
         >
