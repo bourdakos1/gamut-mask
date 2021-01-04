@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { renderWheel } from "./render";
-import useImage from "./useImage";
+import * as tf from "@tensorflow/tfjs";
+import { useDropzone } from "react-dropzone";
 
 import { createStyles, makeStyles } from "@material-ui/core";
-import { useDropzone } from "react-dropzone";
 
 const useStyles = makeStyles(() =>
   createStyles({
@@ -71,114 +70,289 @@ const useStyles = makeStyles(() =>
   })
 );
 
+async function getRandomImage() {
+  const skip = Math.floor(Math.random() * 200);
+  const dep = Math.floor(Math.random() * 3);
+
+  const departments = [
+    "American Painting and Sculpture",
+    "European Painting and Sculpture",
+    "Modern European Painting and Sculpture",
+  ];
+
+  const { data } = await fetch(
+    `https://openaccess-api.clevelandart.org/api/artworks/?type=Painting&has_image=1&limit=1&cc0=1&department=${departments[dep]}&skip=${skip}`
+  ).then((r) => r.json());
+
+  return data[0].images.web.url;
+}
+
+const squareAndAddKernel = (inputShape: any[]) => ({
+  variableNames: ["X"],
+  outputShape: inputShape.slice(),
+  userCode: `
+    void main() {
+        ivec3 coords = getOutputCoords();
+        int x = coords[0];
+        int y = coords[1];
+        int z = coords[2];
+
+        float r = getX(x, y, 0) / 255.0;
+        float g = getX(x, y, 1) / 255.0;
+        float b = getX(x, y, 2) / 255.0;
+
+        vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+        vec4 p = mix(vec4(b, g, K.wz), vec4(g, b, K.xy), step(b, g));
+        vec4 q = mix(vec4(p.xyw, r), vec4(r, p.yzx), step(p.x, r));
+    
+        float d = q.x - min(q.w, q.y);
+        float e = 1.0e-10;
+
+        vec3 res = vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+
+        float l = res.y * res.y * ${150 * window.devicePixelRatio}.0;
+        float rads = (res.x - 0.41666666666) * 2.0 * ${Math.PI};
+
+        if (z == 0) {
+          setOutput(l * cos(rads) + ${150 * window.devicePixelRatio}.0);
+        } else if (z == 1) {
+          setOutput(l * sin(rads) + ${150 * window.devicePixelRatio}.0);
+        }
+      }
+  `,
+});
+
+const vsSource = `
+ attribute vec4 aVertexPosition;
+
+ void main(void) {
+   gl_Position = aVertexPosition;
+ }
+`;
+
+const fsSource = `
+  precision mediump float;
+
+  vec3 hsv2rgb(vec3 c) {
+      vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+      vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+      return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+  }
+
+  void main(void) {
+    float x = (gl_FragCoord.x / 300.0) - 0.5;
+    float y = (gl_FragCoord.y / 300.0) - 0.5;
+    float l = sqrt((x * x) + (y * y)) / 0.5;
+    float rad = atan(y, x);
+
+    float hue = -(rad / (2.0 * ${Math.PI})) + 0.41666666666;
+    float saturation = sqrt(l);
+    float lightness = (l * 0.5) + 0.5;
+
+    vec3 rgb = hsv2rgb(vec3(hue, saturation, lightness));
+
+    gl_FragColor = vec4(rgb[0], rgb[1], rgb[2], 1);
+  }
+`;
+
+function initBuffers(gl: WebGLRenderingContext) {
+  const positions = [
+    [-1.0, 1.0],
+    [1.0, 1.0],
+    [1.0, -1.0],
+    [-1.0, -1.0],
+  ];
+
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(
+    gl.ARRAY_BUFFER,
+    new Float32Array(positions.flat()),
+    gl.STATIC_DRAW
+  );
+
+  return {
+    position: positionBuffer,
+    size: positions.length,
+  };
+}
+
+function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any) {
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clearDepth(1.0);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+  gl.vertexAttribPointer(
+    programInfo.attribLocations.vertexPosition,
+    2,
+    gl.FLOAT,
+    false,
+    0,
+    0
+  );
+  gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+
+  gl.useProgram(programInfo.program);
+
+  gl.drawArrays(gl.TRIANGLE_FAN, 0, buffers.size);
+}
+
+function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
+  const shader = gl.createShader(type);
+  if (!shader) {
+    console.log("error creating shader");
+    return null;
+  }
+
+  gl.shaderSource(shader, source);
+
+  gl.compileShader(shader);
+
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.log(
+      "An error occurred compiling the shaders: " + gl.getShaderInfoLog(shader)
+    );
+    gl.deleteShader(shader);
+    return null;
+  }
+
+  return shader;
+}
+
+function initShaderProgram(
+  gl: WebGLRenderingContext,
+  vsSource: string,
+  fsSource: string
+) {
+  const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+  if (!vertexShader) {
+    console.log("unable to load");
+    return null;
+  }
+  if (!fragmentShader) {
+    console.log("unable to load");
+    return null;
+  }
+
+  const shaderProgram = gl.createProgram();
+  if (!shaderProgram) {
+    console.log("unable to create shader program");
+    return null;
+  }
+  gl.attachShader(shaderProgram, vertexShader);
+  gl.attachShader(shaderProgram, fragmentShader);
+  gl.linkProgram(shaderProgram);
+
+  if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    alert(
+      "Unable to initialize the shader program: " +
+        gl.getProgramInfoLog(shaderProgram)
+    );
+    return null;
+  }
+
+  return shaderProgram;
+}
+
 function App() {
   const classes = useStyles();
-  const imageRef = useRef<HTMLCanvasElement>(null);
-  const colorWheelRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [url, setUrl] = useState("");
   const [image, setImage] = useState("");
 
-  const [clusters, setClusters] = useState(1);
-  const [palette, setPalette] = useState([]);
-
   useEffect(() => {
-    const skip = Math.floor(Math.random() * 200);
-    const dep = Math.floor(Math.random() * 3);
-    // const skip = 0;
+    const gl = canvasRef.current?.getContext("webgl");
+    if (!gl) {
+      return;
+    }
 
-    const departments = [
-      // "African Art", // 0
-      "American Painting and Sculpture", // 205
-      // "Art of the Americas", // 4
-      // "Chinese Art", // 546
-      // "Contemporary Art", // 0
-      // "Decorative Art and Design", // 0
-      // "Drawings", // 0
-      // "Egyptian and Ancient Near Eastern Art", // 3
-      "European Painting and Sculpture", // 305
-      // "Greek and Roman Art", // 1
-      // "Indian and South East Asian Art", // 0
-      // "Islamic Art", // 0
-      // "Japanese Art", // 578
-      // "Korean Art", // 50
-      // "Medieval Art", // 94
-      "Modern European Painting and Sculpture", // 281
-      // "Oceania", // 0
-      // "Performing Arts, Music, & Film", // 0
-      // "Photography", // 0
-      // "Prints", // 1
-      // "Textiles" // 0
-    ];
+    const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+    if (!shaderProgram) {
+      console.log("error init shader program");
+      return;
+    }
 
-    fetch(
-      `https://openaccess-api.clevelandart.org/api/artworks/?type=Painting&has_image=1&limit=1&cc0=1&department=${departments[dep]}&skip=${skip}`
-    )
-      .then((r) => r.json())
-      .then((r) => {
-        console.log(r);
-        setUrl(
-          "https://cors-anywhere.herokuapp.com/" + r.data[0].images.web.url
-        );
-        setImage(r.data[0].images.web.url);
-      });
+    const programInfo = {
+      program: shaderProgram,
+      attribLocations: {
+        vertexPosition: gl.getAttribLocation(shaderProgram, "aVertexPosition"),
+        vertexColor: gl.getAttribLocation(shaderProgram, "aVertexColor"),
+      },
+    };
+
+    const buffers = initBuffers(gl);
+
+    drawScene(gl, programInfo, buffers);
   }, []);
 
-  const { status } = useImage(imageRef, url);
-
-  // useEffect(() => {
-  //   const colorThief = new ColorThief();
-  //   const img = new Image();
-
-  //   img.onload = () => {
-  //     const palette = colorThief.getPalette(img);
-  //     setPalette(palette);
-  //   };
-
-  //   img.crossOrigin = "Anonymous";
-  //   img.src = url;
-  // }, [url]);
+  const canvasRef2 = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (status !== "success") {
-      return;
-    }
-    if (imageRef.current === null) {
-      return;
-    }
-    const ctx = imageRef.current.getContext("2d");
-    if (ctx === null) {
-      return;
-    }
+    const ctx = canvasRef2.current?.getContext("2d");
 
-    if (colorWheelRef.current === null) {
-      return;
-    }
-    const ctx2 = colorWheelRef.current.getContext("2d");
-    if (ctx2 === null) {
-      return;
-    }
+    const img = new Image();
+    img.onload = () => {
+      const px = tf.browser.fromPixels(img).asType("float32");
 
-    const dp = window.devicePixelRatio;
-    const width = 300;
-    const height = 300;
+      const program = squareAndAddKernel([px.shape[0], px.shape[1], 2]);
 
-    colorWheelRef.current.width = width * dp;
-    colorWheelRef.current.height = height * dp;
+      tf.ready().then(async () => {
+        if (!ctx) {
+          return;
+        }
 
-    colorWheelRef.current.style.width = width + "px";
-    colorWheelRef.current.style.height = height + "px";
+        const data = await tf
+          .backend()
+          // @ts-ignore
+          .compileAndRun(program, [px])
+          .asType("int32")
+          .array();
 
-    ctx2.clearRect(
-      0,
-      0,
-      colorWheelRef.current.width,
-      colorWheelRef.current.height
-    );
+        const dp = window.devicePixelRatio;
+        const width = 300;
+        const height = 300;
 
-    const palette = renderWheel(ctx, ctx2, clusters);
-    setPalette(palette);
-  }, [status, clusters]);
+        if (canvasRef2.current) {
+          canvasRef2.current.width = width * dp;
+          canvasRef2.current.height = height * dp;
+
+          canvasRef2.current.style.width = width + "px";
+          canvasRef2.current.style.height = height + "px";
+        }
+
+        ctx.clearRect(0, 0, 300, 300);
+        ctx.beginPath();
+        ctx.arc(
+          (width / 2) * dp,
+          (height / 2) * dp,
+          (width / 2) * dp,
+          0,
+          2 * Math.PI
+        );
+        ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        ctx.fill();
+        const imageData = ctx.getImageData(0, 0, width * dp, height * dp);
+
+        for (let cols of data) {
+          for (let row of cols) {
+            const index = row[0] + width * dp * row[1];
+            imageData.data[index * 4 + 3] = 0;
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+      });
+    };
+
+    img.crossOrigin = "Anonymous";
+    img.src = url;
+  }, [url]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -195,6 +369,13 @@ function App() {
     multiple: false,
   });
 
+  useEffect(() => {
+    getRandomImage().then((url) => {
+      setUrl("https://cors-anywhere.herokuapp.com/" + url);
+      setImage(url);
+    });
+  }, []);
+
   return (
     <div className={classes.dropzone} {...getRootProps()}>
       <input {...getInputProps()} />
@@ -203,10 +384,6 @@ function App() {
           <div className={classes.dropText}>Drop to upload your image</div>
         </div>
       </div>
-      <canvas
-        ref={imageRef}
-        style={{ opacity: 0, position: "absolute", zIndex: -1 }}
-      />
       <h1>Bleep Bloop</h1>
       <p>
         Blop bleep bloop blop blurp beep boop! Blop blip blurp blarp? Blup blep
@@ -214,66 +391,17 @@ function App() {
       </p>
       <button onClick={open}>Upload an image</button>
       <button
-        onClick={() => {
-          const skip = Math.floor(Math.random() * 200);
-          const dep = Math.floor(Math.random() * 3);
-
-          const departments = [
-            "American Painting and Sculpture",
-            "European Painting and Sculpture",
-            "Modern European Painting and Sculpture",
-          ];
-
-          fetch(
-            `https://openaccess-api.clevelandart.org/api/artworks/?type=Painting&has_image=1&limit=1&cc0=1&department=${departments[dep]}&skip=${skip}`
-          )
-            .then((r) => r.json())
-            .then((r) => {
-              console.log(r);
-              setUrl(
-                "https://cors-anywhere.herokuapp.com/" +
-                  r.data[0].images.web.url
-              );
-              setImage(r.data[0].images.web.url);
-            });
+        onClick={async () => {
+          const url = await getRandomImage();
+          setUrl("https://cors-anywhere.herokuapp.com/" + url);
+          setImage(url);
         }}
       >
         Try another demo image
       </button>
 
-      <div style={{ display: "flex" }}>
-        <button
-          onClick={() => {
-            setClusters(clusters - 1);
-          }}
-        >
-          -
-        </button>
-        <button
-          onClick={() => {
-            setClusters(clusters + 1);
-          }}
-        >
-          +
-        </button>
-
-        {palette.map((c) => (
-          <div
-            style={{
-              width: "50px",
-              height: "50px",
-              backgroundColor: `rgb(${c[0]},${c[1]},${c[2]})`,
-            }}
-          />
-        ))}
-      </div>
-
       <div
         style={{
-          // marginLeft: "auto",
-          // marginRight: "auto",
-          // maxWidth: "1200px",
-          // height: "100%",
           paddingTop: "4rem",
           paddingBottom: "4rem",
           display: "flex",
@@ -288,14 +416,12 @@ function App() {
               maxWidth: "600px",
               width: "100%",
               height: "auto",
-              // maxHeight: "80%",
               borderRadius: "8px",
               boxShadow:
                 "0 13px 27px -5px hsla(240, 30.1%, 28%, 0.25), 0 8px 16px -8px hsla(0, 0%, 0%, 0.3), 0 -6px 16px -6px hsla(0, 0%, 0%, 0.03)",
             }}
           />
         </div>
-
         <div
           style={{
             marginLeft: "2rem",
@@ -335,7 +461,20 @@ function App() {
               }}
             />
             <canvas
-              ref={colorWheelRef}
+              ref={canvasRef}
+              width="300"
+              height="300"
+              style={{
+                position: "absolute",
+                top: "5px",
+                left: "5px",
+                borderRadius: "300px",
+              }}
+            />
+            <canvas
+              ref={canvasRef2}
+              width="300"
+              height="300"
               style={{ position: "absolute", top: "5px", left: "5px" }}
             />
           </div>
