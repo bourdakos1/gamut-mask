@@ -773,6 +773,7 @@ function App() {
                         : "2px solid white",
                     top: pick.id === activeColor ? `${y - 8}px` : `${y - 3}px`,
                     left: pick.id === activeColor ? `${x - 8}px` : `${x - 3}px`,
+                    zIndex: pick.id === activeColor ? 1 : 0,
                   }}
                 />
               );
