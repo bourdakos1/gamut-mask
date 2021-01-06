@@ -4,16 +4,161 @@ import heic2any from "heic2any";
 import * as tf from "@tensorflow/tfjs";
 import { useDropzone } from "react-dropzone";
 
+import chroma from "chroma-js";
+import { nanoid } from "nanoid";
+
 import {
   Button,
   createStyles,
   makeStyles,
+  Slider,
   Theme,
   Typography,
+  withStyles,
 } from "@material-ui/core";
+
+const BaseSlider = withStyles({
+  root: {
+    color: "transparent",
+    height: 18,
+    width: 296,
+    margin: "5px 0",
+    padding: 0,
+    borderRight: "2px solid #ff0000",
+    borderLeft: "2px solid #ff0000",
+  },
+  thumb: {
+    height: 18,
+    width: 5,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    border: "1px solid rgba(255, 255, 255, 0.5)",
+    boxShadow: "0 0 0 1px rgba(0, 0, 0, 0.5)",
+    marginTop: 0,
+    marginLeft: -2.5,
+    "&:focus, &:hover, &$active": {
+      boxShadow: "0 0 0 1px rgba(0, 0, 0, 0.5)",
+    },
+  },
+  active: {},
+  valueLabel: {
+    left: "calc(-50% + 4px)",
+  },
+  track: {
+    borderRadius: 0,
+    height: 18,
+  },
+  rail: {
+    borderRadius: 0,
+    height: 18,
+    opacity: 1,
+  },
+})(Slider);
+
+const HueSlider = withStyles({
+  rail: {
+    background: `linear-gradient(to right, 
+      hsl(0, 100%, 50%), 
+      hsl(60, 100%, 50%), 
+      hsl(120, 100%, 50%), 
+      hsl(180, 100%, 50%), 
+      hsl(240, 100%, 50%), 
+      hsl(300, 100%, 50%), 
+      hsl(360, 100%, 50%)
+      )`,
+  },
+})(BaseSlider);
+
+const SaturationSlider = withStyles({
+  rail: {
+    background: `linear-gradient(to right, 
+      hsl(300, 0%, 50%),
+      hsl(300, 100%, 50%)
+      )`,
+  },
+})(BaseSlider);
+
+const ValueSlider = withStyles({
+  rail: {
+    background: `linear-gradient(to right, 
+      hsl(300, 100%, 0%),
+      hsl(300, 100%, 100%)
+      )`,
+  },
+})(BaseSlider);
 
 const useStyles = makeStyles((theme: Theme) => {
   return createStyles({
+    // @ts-ignore
+    saturationRoot: ({ hsv }) => {
+      const c1 = chroma.hsv(hsv[0], 0, hsv[2]).hsl();
+      const c2 = chroma.hsv(hsv[0], 1, hsv[2]).hsl();
+      if (isNaN(c1[0])) {
+        c1[0] = 0;
+      }
+      if (isNaN(c2[0])) {
+        c2[0] = 0;
+      }
+
+      return {
+        borderLeft: `2px solid hsl(${c1[0]}, ${c1[1] * 100}%, ${c1[2] * 100}%)`,
+        borderRight: `2px solid hsl(${c2[0]}, ${c2[1] * 100}%, ${
+          c2[2] * 100
+        }%)`,
+      };
+    },
+    saturationRail: {
+      // @ts-ignore
+      background: ({ hsv }) => {
+        const c1 = chroma.hsv(hsv[0], 0, hsv[2]).hsl();
+        const c2 = chroma.hsv(hsv[0], 1, hsv[2]).hsl();
+        if (isNaN(c1[0])) {
+          c1[0] = 0;
+        }
+        if (isNaN(c2[0])) {
+          c2[0] = 0;
+        }
+        return `linear-gradient(to right, 
+      hsl(${c1[0]}, ${c1[1] * 100}%, ${c1[2] * 100}%),
+      hsl(${c2[0]}, ${c2[1] * 100}%, ${c2[2] * 100}%)
+      )`;
+      },
+    },
+    // @ts-ignore
+    valueRoot: ({ hsv }) => {
+      const c1 = chroma.hsv(hsv[0], hsv[1], 0).hsl();
+      const c2 = chroma.hsv(hsv[0], hsv[1], 1).hsl();
+      if (isNaN(c1[0])) {
+        c1[0] = 0;
+      }
+      if (isNaN(c2[0])) {
+        c2[0] = 0;
+      }
+
+      return {
+        borderLeft: `2px solid hsl(${c1[0]}, ${c1[1] * 100}%, ${c1[2] * 100}%)`,
+        borderRight: `2px solid hsl(${c2[0]}, ${c2[1] * 100}%, ${
+          c2[2] * 100
+        }%)`,
+      };
+    },
+    valueRail: {
+      // @ts-ignore
+      background: ({ hsv }) => {
+        const c1 = chroma.hsv(hsv[0], hsv[1], 0).hsl();
+        const c2 = chroma.hsv(hsv[0], hsv[1], 1).hsl();
+        if (isNaN(c1[0])) {
+          c1[0] = 0;
+        }
+        if (isNaN(c2[0])) {
+          c2[0] = 0;
+        }
+        return `linear-gradient(to right, 
+      hsl(${c1[0]}, ${c1[1] * 100}%, ${c1[2] * 100}%),
+      hsl(${c2[0]}, ${c2[1] * 100}%, ${c2[2] * 100}%)
+      )`;
+      },
+    },
     wrapper: {
       display: "flex",
       justifyContent: "center",
@@ -276,9 +421,40 @@ function initShaderProgram(
   return shaderProgram;
 }
 
+interface ColorPick {
+  id: string;
+  x: number;
+  y: number;
+}
+
 function App() {
-  const classes = useStyles();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [activeColor, setActiveColor] = useState<string | undefined>(undefined);
+  const [colorPicks, setColorPicks] = useState<ColorPick[]>([]);
+
+  const ac = colorPicks.find((c) => c.id === activeColor);
+  let hue = 0;
+  let saturation = 0;
+  let value = 0;
+  if (ac !== undefined) {
+    const x = ac.x / 300.0 - 0.5;
+    const y = ac.y / 300.0 - 0.5;
+    const l = Math.sqrt(x * x + y * y) / 0.5;
+    const rad = Math.atan2(y, x);
+
+    hue = (rad / (2.0 * Math.PI) + 0.41666666666) * 360;
+    saturation = Math.sqrt(l);
+    value = l * 0.5 + 0.5;
+
+    hue = (hue + 360) % 360;
+  }
+
+  // const [hue, setHue] = useState(60);
+  // const [saturation, setSaturation] = useState(0.5);
+  // const [value, setValue] = useState(0.5);
+
+  const classes = useStyles({ hsv: [hue, saturation, value] });
 
   const [image, setImage] = useState("");
 
@@ -314,6 +490,7 @@ function App() {
 
     const img = new Image();
     img.onload = () => {
+      console.time("analyze");
       const px = tf.browser.fromPixels(img).asType("float32");
 
       const program = squareAndAddKernel([px.shape[0], px.shape[1], 2]);
@@ -363,6 +540,7 @@ function App() {
         }
 
         ctx.putImageData(imageData, 0, 0);
+        console.timeEnd("analyze");
       });
     };
 
@@ -373,6 +551,7 @@ function App() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       if (acceptedFiles[0].type === "image/heic") {
+        console.time("converting image");
         const fileReader = new FileReader();
         fileReader.onloadend = function (e) {
           const arrayBuffer = e.target?.result;
@@ -380,6 +559,7 @@ function App() {
             const blob = new Blob([arrayBuffer]);
             heic2any({ blob }).then((conversionResult: any) => {
               const url = URL.createObjectURL(conversionResult);
+              console.timeEnd("converting image");
               setImage(url);
             });
           }
@@ -404,6 +584,18 @@ function App() {
       setImage(url);
     });
   }, []);
+
+  useEffect(() => {
+    function keyUp(e: KeyboardEvent) {
+      if (e.code === "Backspace" || e.code === "Delete") {
+        setColorPicks(colorPicks.filter((c) => c.id !== activeColor));
+      }
+    }
+    document.addEventListener("keyup", keyUp);
+    return () => {
+      document.removeEventListener("keyup", keyUp);
+    };
+  }, [activeColor, colorPicks]);
 
   return (
     <div className={classes.dropzone} {...getRootProps()}>
@@ -434,6 +626,35 @@ function App() {
         >
           Try another demo image
         </Button>
+      </div>
+
+      <div style={{ display: "flex" }}>
+        {colorPicks.map((pick) => {
+          const x = pick.x / 300.0 - 0.5;
+          const y = pick.y / 300.0 - 0.5;
+          const l = Math.sqrt(x * x + y * y) / 0.5;
+          const rad = Math.atan2(y, x);
+
+          let hue = rad / (2.0 * Math.PI) + 0.41666666666;
+          const saturation = Math.sqrt(l);
+          const lightness = l * 0.5 + 0.5;
+
+          hue = hue * 360;
+          hue = (hue + 360) % 360;
+
+          const [r, g, b] = chroma.hsv(hue, saturation, lightness).rgb();
+          return (
+            <div
+              style={{
+                padding: "16px",
+                backgroundColor: `rgb(${r}, ${g}, ${b})`,
+              }}
+            >
+              {Math.round(hue)}, {Math.round(saturation * 100)},{" "}
+              {Math.round(lightness * 100)}
+            </div>
+          );
+        })}
       </div>
 
       <div className={classes.wrapper}>
@@ -504,7 +725,148 @@ function App() {
               width="300"
               height="300"
               style={{ position: "absolute", top: "5px", left: "5px" }}
+              onClick={(e) => {
+                const rect = canvasRef2.current?.getBoundingClientRect();
+
+                const newColor = {
+                  id: nanoid(),
+                  x: e.clientX - (rect?.left ?? 0),
+                  y: e.clientY - (rect?.top ?? 0),
+                };
+
+                setColorPicks([...colorPicks, newColor]);
+                setActiveColor(newColor.id);
+              }}
             />
+            {colorPicks.map((pick) => {
+              const x = pick.x / 300.0 - 0.5;
+              const y = pick.y / 300.0 - 0.5;
+              const l = Math.sqrt(x * x + y * y) / 0.5;
+              const rad = Math.atan2(y, x);
+
+              const hue = rad / (2.0 * Math.PI) + 0.41666666666;
+              const saturation = Math.sqrt(l);
+              const lightness = l * 0.5 + 0.5;
+
+              const [r, g, b] = chroma
+                .hsv(hue * 360, saturation, lightness)
+                .rgb();
+              return (
+                <div
+                  onClick={() => {
+                    setActiveColor(pick.id);
+                  }}
+                  style={{
+                    position: "absolute",
+                    width: pick.id === activeColor ? "24px" : "12px",
+                    height: pick.id === activeColor ? "24px" : "12px",
+                    borderRadius: pick.id === activeColor ? "24px" : "12px",
+                    backgroundColor: `rgb(${r}, ${g}, ${b})`,
+                    boxShadow:
+                      pick.id === activeColor
+                        ? "0 2px 12px rgba(57,76,96,.15), 0 0 1px rgba(64,87,109,.07)"
+                        : undefined,
+                    border:
+                      pick.id === activeColor
+                        ? "5px solid white"
+                        : "2px solid white",
+                    top:
+                      pick.id === activeColor
+                        ? `${pick.y - 8}px`
+                        : `${pick.y - 3}px`,
+                    left:
+                      pick.id === activeColor
+                        ? `${pick.x - 8}px`
+                        : `${pick.x - 3}px`,
+                  }}
+                />
+              );
+            })}
+            {activeColor !== undefined && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "326px",
+                  left: "5px",
+                  width: "300px",
+                }}
+              >
+                <HueSlider
+                  valueLabelDisplay="off"
+                  value={hue}
+                  onChange={(_e, newValue) => {
+                    const h = newValue as number;
+                    const radius = 150;
+                    const l = Math.pow(saturation, 2) * radius;
+                    const rads = (h - 150) / (180 / Math.PI);
+
+                    const x = Math.round(l * Math.cos(rads)) + radius;
+                    const y = Math.round(l * Math.sin(rads)) + radius;
+
+                    setColorPicks(
+                      colorPicks.map((cp) => {
+                        if (cp.id === activeColor) {
+                          return {
+                            ...cp,
+                            x,
+                            y,
+                          };
+                        }
+                        return cp;
+                      })
+                    );
+                  }}
+                  step={0.1}
+                  min={0}
+                  max={360}
+                />
+                <SaturationSlider
+                  valueLabelDisplay="off"
+                  value={saturation}
+                  onChange={(_e, newValue) => {
+                    const s = newValue as number;
+                    const radius = 150;
+                    const l = Math.pow(s, 2) * radius;
+                    const rads = (hue - 150) / (180 / Math.PI);
+
+                    const x = Math.round(l * Math.cos(rads)) + radius;
+                    const y = Math.round(l * Math.sin(rads)) + radius;
+
+                    setColorPicks(
+                      colorPicks.map((cp) => {
+                        if (cp.id === activeColor) {
+                          return {
+                            ...cp,
+                            x,
+                            y,
+                          };
+                        }
+                        return cp;
+                      })
+                    );
+                  }}
+                  className={classes.saturationRoot}
+                  classes={{
+                    rail: classes.saturationRail,
+                  }}
+                  step={0.001}
+                  min={0}
+                  max={1}
+                />
+                <ValueSlider
+                  valueLabelDisplay="off"
+                  value={value}
+                  onChange={(_e, newValue) => {
+                    // setValue(newValue as number);
+                  }}
+                  className={classes.valueRoot}
+                  classes={{ rail: classes.valueRail }}
+                  step={0.001}
+                  min={0}
+                  max={1}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
