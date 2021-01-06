@@ -423,8 +423,9 @@ function initShaderProgram(
 
 interface ColorPick {
   id: string;
-  x: number;
-  y: number;
+  h: number;
+  s: number;
+  v: number;
 }
 
 function App() {
@@ -438,21 +439,21 @@ function App() {
   let saturation = 0;
   let value = 0;
   if (ac !== undefined) {
-    const x = ac.x / 300.0 - 0.5;
-    const y = ac.y / 300.0 - 0.5;
-    const l = Math.sqrt(x * x + y * y) / 0.5;
-    const rad = Math.atan2(y, x);
+    // const x = ac.x / 300.0 - 0.5;
+    // const y = ac.y / 300.0 - 0.5;
+    // const l = Math.sqrt(x * x + y * y) / 0.5;
+    // const rad = Math.atan2(y, x);
 
-    hue = (rad / (2.0 * Math.PI) + 0.41666666666) * 360;
-    saturation = Math.sqrt(l);
-    value = l * 0.5 + 0.5;
+    // hue = (rad / (2.0 * Math.PI) + 0.41666666666) * 360;
+    // saturation = Math.sqrt(l);
+    // value = l * 0.5 + 0.5;
 
-    hue = (hue + 360) % 360;
+    // hue = (hue + 360) % 360;
+
+    hue = ac.h;
+    saturation = ac.s;
+    value = ac.v;
   }
-
-  // const [hue, setHue] = useState(60);
-  // const [saturation, setSaturation] = useState(0.5);
-  // const [value, setValue] = useState(0.5);
 
   const classes = useStyles({ hsv: [hue, saturation, value] });
 
@@ -630,19 +631,7 @@ function App() {
 
       <div style={{ display: "flex" }}>
         {colorPicks.map((pick) => {
-          const x = pick.x / 300.0 - 0.5;
-          const y = pick.y / 300.0 - 0.5;
-          const l = Math.sqrt(x * x + y * y) / 0.5;
-          const rad = Math.atan2(y, x);
-
-          let hue = rad / (2.0 * Math.PI) + 0.41666666666;
-          const saturation = Math.sqrt(l);
-          const lightness = l * 0.5 + 0.5;
-
-          hue = hue * 360;
-          hue = (hue + 360) % 360;
-
-          const [r, g, b] = chroma.hsv(hue, saturation, lightness).rgb();
+          const [r, g, b] = chroma.hsv(pick.h, pick.s, pick.v).rgb();
           return (
             <div
               style={{
@@ -650,8 +639,8 @@ function App() {
                 backgroundColor: `rgb(${r}, ${g}, ${b})`,
               }}
             >
-              {Math.round(hue)}, {Math.round(saturation * 100)},{" "}
-              {Math.round(lightness * 100)}
+              {Math.round(pick.h)}, {Math.round(pick.s * 100)},{" "}
+              {Math.round(pick.v * 100)}
             </div>
           );
         })}
@@ -728,10 +717,26 @@ function App() {
               onClick={(e) => {
                 const rect = canvasRef2.current?.getBoundingClientRect();
 
+                const rawX = e.clientX - (rect?.left ?? 0);
+                const rawY = e.clientY - (rect?.top ?? 0);
+
+                const x = rawX / 300.0 - 0.5;
+                const y = rawY / 300.0 - 0.5;
+                const l = Math.sqrt(x * x + y * y) / 0.5;
+                const rad = Math.atan2(y, x);
+
+                let hue = rad / (2.0 * Math.PI) + 0.41666666666;
+                const saturation = Math.sqrt(l);
+                const value = l * 0.5 + 0.5;
+
+                hue = hue * 360;
+                hue = (hue + 360) % 360;
+
                 const newColor = {
                   id: nanoid(),
-                  x: e.clientX - (rect?.left ?? 0),
-                  y: e.clientY - (rect?.top ?? 0),
+                  h: hue,
+                  s: saturation,
+                  v: value,
                 };
 
                 setColorPicks([...colorPicks, newColor]);
@@ -739,18 +744,14 @@ function App() {
               }}
             />
             {colorPicks.map((pick) => {
-              const x = pick.x / 300.0 - 0.5;
-              const y = pick.y / 300.0 - 0.5;
-              const l = Math.sqrt(x * x + y * y) / 0.5;
-              const rad = Math.atan2(y, x);
+              const radius = 150;
+              const l = Math.pow(pick.s, 2) * radius;
+              const rads = (pick.h - 150) / (180 / Math.PI);
 
-              const hue = rad / (2.0 * Math.PI) + 0.41666666666;
-              const saturation = Math.sqrt(l);
-              const lightness = l * 0.5 + 0.5;
+              const x = Math.round(l * Math.cos(rads)) + radius;
+              const y = Math.round(l * Math.sin(rads)) + radius;
 
-              const [r, g, b] = chroma
-                .hsv(hue * 360, saturation, lightness)
-                .rgb();
+              const [r, g, b] = chroma.hsv(pick.h, pick.s, pick.v).rgb();
               return (
                 <div
                   onClick={() => {
@@ -770,14 +771,8 @@ function App() {
                       pick.id === activeColor
                         ? "5px solid white"
                         : "2px solid white",
-                    top:
-                      pick.id === activeColor
-                        ? `${pick.y - 8}px`
-                        : `${pick.y - 3}px`,
-                    left:
-                      pick.id === activeColor
-                        ? `${pick.x - 8}px`
-                        : `${pick.x - 3}px`,
+                    top: pick.id === activeColor ? `${y - 8}px` : `${y - 3}px`,
+                    left: pick.id === activeColor ? `${x - 8}px` : `${x - 3}px`,
                   }}
                 />
               );
@@ -796,20 +791,12 @@ function App() {
                   value={hue}
                   onChange={(_e, newValue) => {
                     const h = newValue as number;
-                    const radius = 150;
-                    const l = Math.pow(saturation, 2) * radius;
-                    const rads = (h - 150) / (180 / Math.PI);
-
-                    const x = Math.round(l * Math.cos(rads)) + radius;
-                    const y = Math.round(l * Math.sin(rads)) + radius;
-
                     setColorPicks(
                       colorPicks.map((cp) => {
                         if (cp.id === activeColor) {
                           return {
                             ...cp,
-                            x,
-                            y,
+                            h,
                           };
                         }
                         return cp;
@@ -825,20 +812,13 @@ function App() {
                   value={saturation}
                   onChange={(_e, newValue) => {
                     const s = newValue as number;
-                    const radius = 150;
-                    const l = Math.pow(s, 2) * radius;
-                    const rads = (hue - 150) / (180 / Math.PI);
-
-                    const x = Math.round(l * Math.cos(rads)) + radius;
-                    const y = Math.round(l * Math.sin(rads)) + radius;
 
                     setColorPicks(
                       colorPicks.map((cp) => {
                         if (cp.id === activeColor) {
                           return {
                             ...cp,
-                            x,
-                            y,
+                            s,
                           };
                         }
                         return cp;
@@ -857,7 +837,19 @@ function App() {
                   valueLabelDisplay="off"
                   value={value}
                   onChange={(_e, newValue) => {
-                    // setValue(newValue as number);
+                    const v = newValue as number;
+
+                    setColorPicks(
+                      colorPicks.map((cp) => {
+                        if (cp.id === activeColor) {
+                          return {
+                            ...cp,
+                            v,
+                          };
+                        }
+                        return cp;
+                      })
+                    );
                   }}
                   className={classes.valueRoot}
                   classes={{ rail: classes.valueRail }}
