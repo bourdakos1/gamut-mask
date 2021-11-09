@@ -13,7 +13,6 @@ import {
   makeStyles,
   Slider,
   Theme,
-  Typography,
   withStyles,
 } from "@material-ui/core";
 
