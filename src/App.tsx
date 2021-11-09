@@ -608,13 +608,6 @@ function App() {
       </div>
 
       <div style={{ margin: "2rem" }}>
-        <Typography variant="h1" component="h1">
-          Bleep Bloop
-        </Typography>
-        <Typography variant="body1" component="p">
-          Blop bleep bloop blop blurp beep boop! Blop blip blurp blarp? Blup
-          blep bleep.
-        </Typography>
         <Button variant="contained" onClick={open}>
           Upload an image
         </Button>
